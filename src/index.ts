@@ -22,7 +22,12 @@ import {
   isStreamParams,
   isFuturesDataParams
 } from './types/api-types.js';
-import { StreamEventData } from './types/ws-stream.js';
+import { StreamEventData, StreamEventType } from './types/ws-stream.js';
+
+// Type guard for StreamEventType
+function isStreamEventType(stream: string): stream is StreamEventType {
+  return ['trade', 'ticker', 'bookTicker', 'kline', 'depth', 'forceOrder', 'markPrice', 'openInterest'].includes(stream);
+}
 
 const wsManager = new BinanceWebSocketManager();
 const restConnector = new BinanceRestConnector();
@@ -152,7 +157,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "array",
               items: {
                 type: "string",
-                enum: ["ticker", "trade", "kline", "depth", "forceOrder", "markPrice", "openInterest"]
+                enum: ["ticker", "trade", "bookTicker", "kline", "depth", "forceOrder", "markPrice", "openInterest"]
               },
               description: "List of data streams to subscribe to"
             }
@@ -253,10 +258,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error('Invalid stream parameters');
         }
         const { symbol, type, streams } = request.params.arguments;
-        wsManager.subscribe(symbol, type, streams);
         
-        // Set up message handler
-        wsManager.onStreamData(symbol, streams[0], (data: StreamEventData) => {
+        // Validate stream types
+        const validatedStreams = streams.map(stream => {
+          if (isStreamEventType(stream)) {
+            return stream;
+          }
+          throw new Error(`Invalid stream type: ${stream}`);
+        });
+
+        wsManager.subscribe(symbol, type, validatedStreams);
+        
+        // Set up message handler with validated stream type
+        wsManager.onStreamData(symbol, validatedStreams[0], (data: StreamEventData) => {
           // Handle real-time data updates
           logger.info(`Received WebSocket data for ${symbol}:`, data);
         });
