@@ -1,20 +1,19 @@
+// market-data.ts
+// Updated interfaces with volumeDelta24h and priceChange1h removed.
+
 export interface MarketData {
   symbol: string;
   exchange: string;
   type: 'spot' | 'futures';
-  price: number;
-  timestamp: number;
-  volume24h: number;
-  volumeDelta24h?: number;
-  priceChange24h: number;
-  priceChange1h?: number;
-  price24hHigh: number;
-  price24hLow: number;
-  tradeCount24h: number;
-  bidAskSpread?: number;
-  openInterest?: number;
-  fundingRate?: number;
-  liquidations24h?: number;
+  price: number;            // lastPrice
+  timestamp: number;        // e.g., Date.now() or the closeTime from the 24hr ticker
+  volume24h: number;        // volume from 24hr ticker
+  priceChange24h: number;   // priceChange from 24hr ticker
+  price24hHigh: number;     // highPrice from 24hr ticker
+  price24hLow: number;      // lowPrice from 24hr ticker
+  tradeCount24h: number;    // count from 24hr ticker
+  // volumeDelta24h REMOVED
+  // priceChange1h REMOVED
 }
 
 export interface OrderBookData {
@@ -34,4 +33,12 @@ export interface TradeData {
   timestamp: number;
   isBuyerMaker: boolean;
   tradeId: number;
+}
+
+export interface FuturesMarketData extends MarketData {
+  markPrice: string;
+  indexPrice: string;
+  lastFundingRate: string;
+  nextFundingTime: number;
+  openInterest: string;
 }

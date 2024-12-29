@@ -24,7 +24,6 @@ import {
 } from './types/api-types.js';
 import { StreamEventData, StreamEventType } from './types/ws-stream.js';
 
-// Type guard for StreamEventType
 function isStreamEventType(stream: string): stream is StreamEventType {
   return ['trade', 'ticker', 'bookTicker', 'kline', 'depth', 'forceOrder', 'markPrice', 'openInterest'].includes(stream);
 }
@@ -45,7 +44,6 @@ const server = new Server(
   }
 );
 
-// List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -169,46 +167,64 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (request.params.name) {
       case "get_market_data": {
         if (!isMarketDataParams(request.params.arguments)) {
+          logger.error('Invalid market data parameters:', request.params.arguments);
           throw new Error('Invalid market data parameters');
         }
+
         const { symbol, type } = request.params.arguments;
-        const data = await restConnector.getMarketData(symbol, type);
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify(data, null, 2)
-          }]
-        };
+        
+        try {
+          logger.info(`Fetching ${type} market data for ${symbol}`);
+          const data = await restConnector.getMarketData(symbol, type);
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify(data, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          logger.error(`Market data error for ${symbol} (${type}):`, error?.message || error);
+          if (error?.response?.data) {
+            logger.error('Response data:', error.response.data);
+          }
+          throw new APIError(error?.message || 'Failed to fetch market data', error);
+        }
       }
 
       case "test_futures_endpoints": {
         if (!isFuturesDataParams(request.params.arguments)) {
           throw new Error('Invalid futures data parameters');
         }
-        const { symbol } = request.params.arguments;
         
-        // Test each endpoint individually
-        const openInterest = await restConnector.getFuturesOpenInterest(symbol);
-        const fundingRate = await restConnector.getFuturesFundingRate(symbol);
-        const liquidations = await restConnector.getFuturesLiquidations(symbol);
+        const { symbol } = request.params.arguments;
+        logger.info(`Testing futures endpoints for ${symbol}`);
+        
+        try {
+          const [openInterest, fundingRate, liquidations] = await Promise.all([
+            restConnector.getFuturesOpenInterest(symbol),
+            restConnector.getFuturesFundingRate(symbol),
+            restConnector.getFuturesLiquidations(symbol)
+          ]);
 
-        // Return all test results
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              openInterest,
-              fundingRate,
-              liquidations
-            }, null, 2)
-          }]
-        };
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                openInterest,
+                fundingRate,
+                liquidations
+              }, null, 2)
+            }]
+          };
+        } catch (error: any) {
+          logger.error(`Futures endpoints test error for ${symbol}:`, error?.message || error);
+          throw new APIError(error?.message || 'Failed to test futures endpoints', error);
+        }
       }
 
       case "get_futures_open_interest": {
@@ -259,7 +275,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const { symbol, type, streams } = request.params.arguments;
         
-        // Validate stream types
         const validatedStreams = streams.map(stream => {
           if (isStreamEventType(stream)) {
             return stream;
@@ -269,9 +284,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         wsManager.subscribe(symbol, type, validatedStreams);
         
-        // Set up message handler with validated stream type
         wsManager.onStreamData(symbol, validatedStreams[0], (data: StreamEventData) => {
-          // Handle real-time data updates
           logger.info(`Received WebSocket data for ${symbol}:`, data);
         });
 
@@ -286,21 +299,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       default:
         throw new Error(`Unknown tool: ${request.params.name}`);
     }
-  } catch (error) {
-    const apiError = error as APIError;
-    logger.error('Error handling tool request:', apiError);
-    throw apiError;
+  } catch (error: any) {
+    logger.error('Error handling tool request:', error?.message || error);
+    throw error instanceof APIError ? error : new APIError(
+      error?.message || 'Unknown error occurred',
+      error
+    );
   }
 });
 
-// Start the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logger.info('Binance MCP server started successfully');
 }
 
-// Handle cleanup on shutdown
 process.on('SIGINT', () => {
   logger.info('Shutting down server...');
   wsManager.close();
